@@ -1,6 +1,5 @@
 name: Security CI
 
-# Ejecuta en push y PR a main (ajusta ramas según tus necesidades)
 on:
   push:
     branches: ["main"]
@@ -10,8 +9,8 @@ on:
 env:
   BACKEND_IMAGE: smartcity-backend:latest
   FRONTEND_IMAGE: smartcity-frontend:latest
-  BANDIT_FAIL_ON: "HIGH"      # Opciones: LOW, MEDIUM, HIGH (fallará si hay issues >= este nivel)
-  TRIVY_SEVERITY: "CRITICAL,HIGH"  # severidades para que Trivy falle
+  BANDIT_FAIL_ON: "HIGH"
+  TRIVY_SEVERITY: "CRITICAL,HIGH"
 
 jobs:
   security-scan:
@@ -29,104 +28,54 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/backend/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
-      # ---------------------------
-      # 1) Bandit: Static scan for Python
-      # ---------------------------
       - name: Install Bandit
         run: |
           python -m pip install --upgrade pip
           pip install bandit
 
-      - name: Run Bandit (Python static security scan)
-        id: bandit_run
+      # ---------------------------
+      # Bandit scan (Python code)
+      # ---------------------------
+      - name: Run Bandit
         run: |
-          # Run Bandit and produce JSON output (don't fail pipeline here directly)
           bandit -r backend/app -f json -o bandit_report.json || true
-          echo "Bandit JSON report saved to bandit_report.json"
-          # Show brief stats
-          python - <<'PY'
-import json,sys
-try:
-    j=json.load(open('bandit_report.json'))
-    issues=j.get('results',[])
-    print(f"Bandit found {len(issues)} issues (all severities).")
-    # Print counts per severity
-    counts={}
-    for it in issues:
-        sev=it.get('issue_severity',"UNKNOWN")
-        counts[sev]=counts.get(sev,0)+1
-    print("Counts by severity:", counts)
-except FileNotFoundError:
-    print("No bandit_report.json found, maybe no Python files scanned.")
-PY
+          python -c "import json; d=json.load(open('bandit_report.json')); issues=d.get('results',[]); print(f'Bandit found {len(issues)} issues.'); counts={}; [counts.setdefault(i.get('issue_severity','UNKNOWN'),0) or counts.update({i.get('issue_severity','UNKNOWN'):counts.get(i.get('issue_severity','UNKNOWN'),0)+1}) for i in issues]; print('Counts by severity:',counts)"
 
-      - name: Fail on Bandit severity threshold
-        if: always()
+      - name: Fail if Bandit issues >= threshold
         run: |
-          python - "$BANDIT_FAIL_ON" <<'PY'
-import json,sys
-threshold=sys.argv[1].upper()
-order = {"LOW":1,"MEDIUM":2,"HIGH":3}
-try:
-    data = json.load(open("bandit_report.json"))
-    issues = data.get("results",[])
-except FileNotFoundError:
-    issues=[]
-# find any issue >= threshold
-found=[]
-for i in issues:
-    sev = i.get("issue_severity","LOW").upper()
-    if order.get(sev,0) >= order.get(threshold,3):
-        found.append((sev,i.get("test_name"), i.get("filename"), i.get("issue_text")))
-if found:
-    print(f"Bandit: failing because found {len(found)} issues >= {threshold}")
-    for s,name,fn,msg in found[:20]:
-        print(f"- {s} {name} @ {fn}: {msg}")
-    sys.exit(1)
-else:
-    print("Bandit: no issues at or above threshold. OK.")
-PY
+          python -c "import json,sys; threshold='${BANDIT_FAIL_ON}'.upper(); order={'LOW':1,'MEDIUM':2,'HIGH':3}; issues=json.load(open('bandit_report.json')).get('results',[]); found=[i for i in issues if order.get(i.get('issue_severity','LOW').upper(),0)>=order.get(threshold,3)]; \
+          sys.exit(1) if found else print(f'Bandit: no issues >= {threshold}')"
 
       # ---------------------------
-      # 2) Build Docker images to scan
+      # Docker image build
       # ---------------------------
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Build backend Docker image
-        run: |
-          docker build -t $BACKEND_IMAGE ./backend
+        run: docker build -t $BACKEND_IMAGE ./backend
 
       - name: Build frontend Docker image
-        if: always()
         run: |
           if [ -d "./frontend" ]; then
-            docker build -t $FRONTEND_IMAGE ./frontend || true
+            docker build -t $FRONTEND_IMAGE ./frontend
           else
-            echo "No frontend folder, skipping frontend image build"
+            echo "No frontend folder, skipping"
           fi
 
       # ---------------------------
-      # 3) Trivy: Scan built images for vulnerabilities
+      # Trivy: scan Docker images
       # ---------------------------
-      - name: Scan backend image with Trivy
+      - name: Scan backend with Trivy
         uses: aquasecurity/trivy-action@v1
         with:
           image-ref: ${{ env.BACKEND_IMAGE }}
           format: 'table'
           severity: ${{ env.TRIVY_SEVERITY }}
           ignore-unfixed: true
-          exit-code: '1'   # if vulnerabilities found at given severities -> fail
+          exit-code: '1'
 
-      - name: Scan frontend image with Trivy (if built)
+      - name: Scan frontend with Trivy
         if: always()
         uses: aquasecurity/trivy-action@v1
         with:
@@ -135,32 +84,30 @@ PY
           severity: ${{ env.TRIVY_SEVERITY }}
           ignore-unfixed: true
           exit-code: '1'
-        continue-on-error: false
 
       # ---------------------------
-      # 4) Optional: pip-audit for Python dependency scanning (depends on backend/requirements.txt)
+      # pip-audit: check dependencies
       # ---------------------------
       - name: Install pip-audit
-        run: |
-          pip install pip-audit
+        run: pip install pip-audit
 
-      - name: Run pip-audit on backend requirements
+      - name: Run pip-audit
         run: |
           if [ -f backend/requirements.txt ]; then
             pip-audit -r backend/requirements.txt --progress=off || true
           else
-            echo "No backend/requirements.txt found, skipping pip-audit."
+            echo "No requirements.txt found"
           fi
 
       # ---------------------------
-      # 5) CodeQL: deeper static analysis
+      # CodeQL analysis
       # ---------------------------
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v2
         with:
           languages: javascript, python
 
-      - name: Autobuild (for CodeQL)
+      - name: Autobuild
         uses: github/codeql-action/autobuild@v2
 
       - name: Run CodeQL analysis
