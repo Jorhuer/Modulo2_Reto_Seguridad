@@ -1,0 +1,42 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: sc-mosquitto
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    ports:
+      - "1883:1883"
+      - "9001:9001" # websocket mqtt (opcional)
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-h", "localhost", "-t", "health/check", "-C", "1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  backend:
+    build: ./backend
+    container_name: sc-backend
+    depends_on:
+      mosquitto:
+        condition: service_started
+    environment:
+      - MQTT_BROKER=mosquitto
+      - MQTT_PORT=1883
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/app:/app
+    restart: unless-stopped
+
+  simulator:
+    build:
+      context: ./simulator
+    container_name: sc-simulator
+    environment:
+      - BROKER_HOST=mosquitto
+      - BROKER_PORT=1883
+      - DEVICE_ID=sim-001
+      - INTERVAL=10
+    depends_on:
+      - mosquitto
+    restart: "no"
