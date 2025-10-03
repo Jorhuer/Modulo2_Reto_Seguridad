@@ -57,11 +57,12 @@ jobs:
 
       - name: Build frontend Docker image
         run: |
-          if [ -d "./frontend" ]; then
+          if [ -d "./frontend" ] && [ -f "./frontend/Dockerfile" ]; then
             docker build -t $FRONTEND_IMAGE ./frontend
           else
-            echo "No frontend folder, skipping"
+            echo "No frontend Dockerfile found, skipping"
           fi
+
 
       # ---------------------------
       # Trivy: scan Docker images
