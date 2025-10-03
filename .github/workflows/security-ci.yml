@@ -77,14 +77,14 @@ jobs:
           exit-code: '0' # It should 1 to report fail case
 
       - name: Scan frontend with Trivy
-        if: always()
+        if: ${{ hashFiles('frontend/Dockerfile') != '' }}
         uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: ${{ env.FRONTEND_IMAGE }}
           format: 'table'
           severity: ${{ env.TRIVY_SEVERITY }}
           ignore-unfixed: true
-          exit-code: '0' # It should 1 to report fail case
+          exit-code: '1'
 
       # ---------------------------
       # pip-audit: check dependencies
