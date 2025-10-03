@@ -67,7 +67,7 @@ jobs:
       # Trivy: scan Docker images
       # ---------------------------
       - name: Scan backend with Trivy
-        uses: aquasecurity/trivy-action@v1
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: ${{ env.BACKEND_IMAGE }}
           format: 'table'
@@ -77,7 +77,7 @@ jobs:
 
       - name: Scan frontend with Trivy
         if: always()
-        uses: aquasecurity/trivy-action@v1
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: ${{ env.FRONTEND_IMAGE }}
           format: 'table'
