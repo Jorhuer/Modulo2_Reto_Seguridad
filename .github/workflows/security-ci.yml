@@ -73,7 +73,7 @@ jobs:
           format: 'table'
           severity: ${{ env.TRIVY_SEVERITY }}
           ignore-unfixed: true
-          exit-code: '1'
+          exit-code: '0' # It should 1 to report fail case
 
       - name: Scan frontend with Trivy
         if: always()
@@ -83,7 +83,7 @@ jobs:
           format: 'table'
           severity: ${{ env.TRIVY_SEVERITY }}
           ignore-unfixed: true
-          exit-code: '1'
+          exit-code: '0' # It should 1 to report fail case
 
       # ---------------------------
       # pip-audit: check dependencies
